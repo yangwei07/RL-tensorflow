@@ -1,4 +1,4 @@
-from part5.my_ddpg import DDPG, ReplayBuffer, OrnsteinUhlenbeckActionNoise
+from ddpg import DDPG, ReplayBuffer, OrnsteinUhlenbeckActionNoise
 import tensorflow as tf
 import numpy as np
 from part5.env import ArmEnv
