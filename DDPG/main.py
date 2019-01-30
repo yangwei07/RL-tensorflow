@@ -1,7 +1,7 @@
-from ddpg import DDPG, ReplayBuffer, OrnsteinUhlenbeckActionNoise
+from DDPG.ddpg import DDPG, ReplayBuffer, OrnsteinUhlenbeckActionNoise
 import tensorflow as tf
 import numpy as np
-from part5.env import ArmEnv
+from DDPG.env import ArmEnv
 
 BUFFER_SIZE = 10000
 RANDOM = 1234
