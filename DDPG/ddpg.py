@@ -3,129 +3,103 @@ import numpy as np
 from collections import deque
 import random
 
-ACTOR_LR = 0.001
+ACTOR_LR = 0.0001
 CRITIC_LR = 0.001
-GAMMA = 0.9
+GAMMA = 0.99
 TAU = 0.01
-BATCH_SIZE = 32
+BATCH_SIZE = 64
 OUTPUT_GRAPH = False
 
 
 class DDPG:
-    def __init__(self, s_dim, a_dim, a_bound, sess,
+    def __init__(self, s_dim, a_dim, a_bound,
                  actor_lr=ACTOR_LR,
                  critic_lr=CRITIC_LR,
                  gamma=GAMMA,
                  tau=TAU,
                  batch_size=BATCH_SIZE):
+
         self.s_dim = s_dim
         self.a_dim = a_dim
         self.a_bound = a_bound
-        self.sess = sess
-        self.actor_lr = actor_lr
-        self.critic_lr = critic_lr
-        self.gamma = gamma
-        self.tau = tau
         self.batch_size = batch_size
+        self.sess = tf.Session()
 
-        # Actor Network
+        self.s = tf.placeholder(tf.float32, shape=[None, self.s_dim], name='s')
+        self.s_ = tf.placeholder(tf.float32, shape=[None, self.s_dim], name='s_')
+        self.r = tf.placeholder(tf.float32, shape=[None, 1], name='r')
+        # actor Network
         with tf.variable_scope('Actor'):
             with tf.variable_scope('eval'):
-                self.actor_s = tf.placeholder(tf.float32, shape=[None, self.s_dim], name='state')
-                self.actor_a = self.actor_network(self.actor_s, name='action', trainable=True)
-                self.actor_eval_params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='Actor/eval')
+                self.a = self.actor_network(self.s, trainable=True, name='a')
             with tf.variable_scope('target'):
-                self.actor_s_ = tf.placeholder(tf.float32, shape=[None, self.s_dim], name='state')
-                self.actor_a_ = self.actor_network(self.actor_s_, name='action', trainable=True)
-                self.actor_target_params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='Actor/target')
-
-            self.update_actor_params = [self.actor_target_params[i].assign(
-                tf.multiply(self.actor_eval_params[i], self.tau) +
-                tf.multiply(self.actor_target_params[i], 1. - self.tau)
-            ) for i in range(len(self.actor_target_params))]
-        # Critic network
+                a_ = self.actor_network(self.s_, trainable=False)
+        # critic network
         with tf.variable_scope('Critic'):
             with tf.variable_scope('eval'):
-                self.critic_s = tf.placeholder(tf.float32, shape=[None, self.s_dim], name='state')
-                self.critic_a = tf.placeholder(tf.float32, shape=[None, self.a_dim], name='action')
-                self.policy = self.critic_network(self.critic_s, self.critic_a, name='policy', trainable=True)
-                self.critic_eval_params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='Critic/eval')
+                self.q = self.critic_network(self.s, self.a, trainable=True, name='q_value')
             with tf.variable_scope('target'):
-                self.critic_s_ = tf.placeholder(tf.float32, shape=[None, self.s_dim], name='state')
-                self.critic_a_ = tf.placeholder(tf.float32, shape=[None, self.a_dim], name='action')
-                self.policy_ = self.critic_network(self.critic_s_, self.critic_a_, name='policy', trainable=True)
-                self.critic_target_params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='Critic/target')
+                q_ = self.critic_network(self.s_, a_, trainable=False)
 
-            self.update_critic_params = [self.critic_target_params[i].assign(
-                tf.multiply(self.critic_eval_params[i], self.tau) +
-                tf.multiply(self.critic_target_params[i], 1. - self.tau)
-            ) for i in range(len(self.critic_target_params))]
-
-        # optimize action
-        self.action_gradient = tf.placeholder(tf.float32, [None, self.a_dim], name='action_gradient')
-        self.unnormalized_actor_gradients = tf.gradients(
-            self.actor_a,
-            self.actor_eval_params,
-            -self.action_gradient,
-            name='unnormalized_actor_gradients')
-        self.actor_gradients = list(map(lambda x: tf.div(x, self.batch_size), self.unnormalized_actor_gradients))
-        self.optimize_action = tf.train.AdamOptimizer(
-            self.actor_lr).apply_gradients(zip(self.actor_gradients, self.actor_eval_params))
-        # optimize policy
-        self.predicted_policy = tf.placeholder(tf.float32, shape=[None, 1], name='predicted_policy')
-        self.td_error = tf.losses.mean_squared_error(self.predicted_policy, self.policy)
-        self.optimize_policy = tf.train.AdamOptimizer(self.critic_lr).minimize(self.td_error)
-        # update action gradient
-        self.action_grads = tf.gradients(self.policy, self.critic_a)
+        self.ae_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='Actor/eval')
+        self.at_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='Actor/target')
+        self.ce_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='Critic/eval')
+        self.ct_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='Critic/target')
+        # update network parameters
+        self.update_params = [[tf.assign(at, (1 - tau) * at + tau * ae),
+                               tf.assign(ct, (1 - tau) * ct + tau * ce)] for at, ae, ct, ce in zip(
+                self.at_params,
+                self.ae_params,
+                self.ct_params,
+                self.ce_params
+            )]
+        # critic train
+        q_target = self.r + gamma * q_
+        td_error = tf.losses.mean_squared_error(q_target,self.q)
+        self.critic_train = tf.train.AdamOptimizer(critic_lr).minimize(td_error, var_list=self.ce_params)
+        # actor train
+        a_loss = -tf.reduce_mean(self.q)  # maximize the q
+        self.actor_train = tf.train.AdamOptimizer(actor_lr).minimize(a_loss, var_list=self.ae_params)
         # global initializer
         self.sess.run(tf.global_variables_initializer())
-
+        # save tensorboard
         if OUTPUT_GRAPH:
             tf.summary.FileWriter("logs/", self.sess.graph)
 
-    def actor_network(self, state, name, trainable):
-        net = tf.layers.batch_normalization(state)
+    def actor_network(self, s, trainable, name=None):
+        net = tf.layers.batch_normalization(s)
         net = tf.layers.dense(net, 300, activation=tf.nn.relu, name='hidden_layer', trainable=trainable)
-        action = tf.layers.dense(net, self.a_dim, activation=tf.nn.tanh, name='action', trainable=trainable)
+        action = tf.layers.dense(net, self.a_dim, activation=tf.nn.tanh, name='output_layer', trainable=trainable)
         action = tf.multiply(action, self.a_bound, name=name)
         return action
 
-    def critic_network(self, state, action, name, trainable):
-        net_s = tf.layers.batch_normalization(state)
-        net_a = tf.layers.batch_normalization(action)
-        state_weights = tf.get_variable('state_weights', [self.s_dim, 300], trainable=trainable)
-        action_weights = tf.get_variable('action_weights', [self.a_dim, 300], trainable=trainable)
-        action_biases = tf.get_variable('action_biases', [1, 300], trainable=trainable)
-        net = tf.nn.relu(tf.matmul(net_s, state_weights) + tf.matmul(net_a, action_weights) + action_biases)
-        policy = tf.layers.dense(net, 1, activation=tf.nn.tanh, trainable=trainable, name=name)
-        return policy
+    def critic_network(self, s, a, trainable, name=None):
+        net_s = tf.layers.batch_normalization(s)
+        net_a = tf.layers.batch_normalization(a)
+        s_w = tf.get_variable('state_weights', [self.s_dim, 300], trainable=trainable)
+        a_w = tf.get_variable('action_weights', [self.a_dim, 300], trainable=trainable)
+        a_b = tf.get_variable('action_biases', [1, 300], trainable=trainable)
+        net = tf.nn.relu(tf.matmul(net_s, s_w) + tf.matmul(net_a, a_w) + a_b)
+        q_value = tf.layers.dense(net, 1, trainable=trainable, name=name)
+        return q_value
 
-    def update_target_network(self):
-        self.sess.run(self.update_actor_params)
-        self.sess.run(self.update_critic_params)
+    def update_network(self):
+        self.sess.run(self.update_params)
 
-    def train(self, scope, state, action, policy=None):
+    def train(self, scope, s, a, s_=None, r=None):
         if scope == 'Actor':
-            return self.sess.run(self.optimize_action, {self.actor_s: state, self.action_gradient: action})
+            return self.sess.run(self.actor_train, {self.s: s, self.a: a})
         else:
-            return self.sess.run(self.optimize_policy, {self.critic_s: state,
-                                                        self.critic_a: action,
-                                                        self.predicted_policy: policy})
+            return self.sess.run(self.critic_train, {self.s: s,
+                                                     self.a: a,
+                                                     self.s_: s_,
+                                                     self.r: r})
 
-    def evaluate(self, scope, state, action=None):
+    def evaluate(self, scope, s, a=None):
         if scope == 'Actor':
-            return self.sess.run(self.actor_a, {self.actor_s: state})
+            return self.sess.run(self.a, {self.s: s})
         else:
-            return self.sess.run(self.policy, {self.critic_s: state, self.critic_a: action})
-
-    def target(self, scope, state, action=None):
-        if scope == 'Actor':
-            return self.sess.run(self.actor_a_, {self.actor_s_: state})
-        else:
-            return self.sess.run(self.policy_, {self.critic_s_: state, self.critic_a_: action})
-
-    def action_gradients(self, state, action):
-        return self.sess.run(self.action_grads, {self.critic_s: state, self.critic_a: action})
+            return self.sess.run(self.q, {self.s: s, self.a: a})
 
     def save(self):
         saver = tf.train.Saver()
