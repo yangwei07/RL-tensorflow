@@ -1,13 +1,13 @@
 from DDPG.ddpg import DDPG, ReplayBuffer, OrnsteinUhlenbeckActionNoise
 import tensorflow as tf
 import numpy as np
-from DDPG.car_env import CarEnv
-# from DDPG.env import ArmEnv
+# import gym
+from DDPG.env.arm_env import ArmEnv
 import matplotlib.pyplot as plt
 
 BUFFER_SIZE = 100000
 RANDOM = 1234
-MAX_EPISODES = 3000
+MAX_EPISODES = 500
 MAX_STEPS = 400
 RENDER = True
 ON_TRAIN = True
@@ -15,19 +15,18 @@ ON_TRAIN = True
 np.random.seed(RANDOM)
 tf.set_random_seed(RANDOM)
 
-env = CarEnv()
-# env = ArmEnv()
-s_dim, a_dim, a_bound = env.state_dim, env.action_dim, env.action_bound['d'][1]
-# s_dim, a_dim, a_bound = env.state_dim, env.action_dim, env.action_bound[1]
+env = ArmEnv()
+# s_dim, a_dim, a_bound = env.state_dim, env.action_dim, env.action_bound['d'][1]
+s_dim, a_dim, a_bound = env.state_dim, env.action_dim, env.action_bound[1]
 rl = DDPG(s_dim, a_dim, a_bound)
-rl.update_network()
+rl.update_target_network()
 actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(a_dim))
 replay_buffer = ReplayBuffer(BUFFER_SIZE, RANDOM)
 
 
 def train():
     reward = []
-    policy = []
+    q_value = []
     fig = plt.figure()
     ax1 = fig.add_subplot(121)
     ax2 = fig.add_subplot(122)
@@ -41,10 +40,10 @@ def train():
         for j in range(MAX_STEPS):
             if RENDER:
                 env.render()
-            # Added exploration noise
-            a = rl.evaluate('Actor', [s])# + actor_noise()
-            s_, r, t, c = env.step(a[0])
-            # s_, r, t = env.step(a[0])
+            # choose action
+            a = rl.evaluate('Actor', [s]) + actor_noise()
+            # s_, r, t, c = env.step(a[0])
+            s_, r, t = env.step(a[0])
             # store replay buffer
             replay_buffer.add(
                 np.reshape(s, (s_dim,)),
@@ -57,25 +56,28 @@ def train():
                 s_batch, s2_batch, a_batch, r_batch, t_batch = replay_buffer.sample_batch(rl.batch_size)
                 rl.train('Actor', s_batch, a_batch)
                 rl.train('Critic', s_batch, a_batch, s2_batch,
-                         np.reshape(r_batch, (rl.batch_size, 1)))
+                         np.reshape(r_batch, (rl.batch_size, 1)),
+                         np.reshape(t_batch, (rl.batch_size, 1)))
                 # Update target networks
-                rl.update_network()
+                rl.update_target_network()
 
                 ep_r += r
                 ep_q += np.amax(rl.evaluate('Critic', s_batch, a_batch))
 
-
             s = s_
-            if t or c or j == MAX_STEPS - 1:
-            # if t or j == MAX_STEPS - 1:
-                print('episode: %i | step: %i | %s | reward: %.1f | q_value: %.4f' % (
-                    i, j, '---' if not t else 'done', ep_r, ep_q / j))
+            # if t or c or j == MAX_STEPS - 1:
+            if t or j == MAX_STEPS - 1:
+                rl.summary(ep_r, ep_q / j, i)
                 reward = np.append(reward, ep_r)
-                policy = np.append(policy, ep_q / j)
+                q_value = np.append(q_value, ep_q / j)
                 ax1.cla()
                 ax2.cla()
                 ax1.plot(reward, 'b')
-                ax2.plot(policy, 'b')
+                ax1.set_title('total reward')
+                ax2.plot(q_value, 'b')
+                ax2.set_title('average q_value')
+                print('episode: %i | step: %i | %s | reward: %.1f | q_value: %.4f' % (
+                    i, j, '---' if not t else 'done', ep_r, ep_q / j))
                 break
 
     rl.save()

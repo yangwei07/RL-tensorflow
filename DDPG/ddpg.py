@@ -8,7 +8,7 @@ CRITIC_LR = 0.001
 GAMMA = 0.99
 TAU = 0.01
 BATCH_SIZE = 64
-OUTPUT_GRAPH = False
+SUMMARY_OUTPUT = True
 
 
 class DDPG:
@@ -17,17 +17,23 @@ class DDPG:
                  critic_lr=CRITIC_LR,
                  gamma=GAMMA,
                  tau=TAU,
-                 batch_size=BATCH_SIZE):
+                 batch_size=BATCH_SIZE,
+                 summary_output=SUMMARY_OUTPUT):
 
         self.s_dim = s_dim
         self.a_dim = a_dim
         self.a_bound = a_bound
+        self.gamma = gamma
         self.batch_size = batch_size
-        self.sess = tf.Session()
+        self.summary_output = summary_output
 
+        self.sess = tf.Session()
+        # define inputs for neural network
         self.s = tf.placeholder(tf.float32, shape=[None, self.s_dim], name='s')
         self.s_ = tf.placeholder(tf.float32, shape=[None, self.s_dim], name='s_')
         self.r = tf.placeholder(tf.float32, shape=[None, 1], name='r')
+        self.t = tf.placeholder(tf.bool, shape=[None, 1], name='t')
+
         # actor Network
         with tf.variable_scope('Actor'):
             with tf.variable_scope('eval'):
@@ -54,21 +60,31 @@ class DDPG:
                 self.ce_params
             )]
         # critic train
-        q_target = self.r + gamma * q_
-        td_error = tf.losses.mean_squared_error(q_target,self.q)
-        self.critic_train = tf.train.AdamOptimizer(critic_lr).minimize(td_error, var_list=self.ce_params)
+        # q_target = self.r + gamma * q_
+        q_target = self.skip_done(q_, self.r, self.t)
+        td_error = tf.losses.mean_squared_error(q_target, self.q)
+        self.critic_train = tf.train.AdamOptimizer(critic_lr).minimize(
+            td_error, var_list=self.ce_params, name='tf_error')
         # actor train
         a_loss = -tf.reduce_mean(self.q)  # maximize the q
-        self.actor_train = tf.train.AdamOptimizer(actor_lr).minimize(a_loss, var_list=self.ae_params)
+        self.actor_train = tf.train.AdamOptimizer(actor_lr).minimize(
+            a_loss, var_list=self.ae_params, name='a_loss')
+        # summary
+        if summary_output:
+            with tf.variable_scope('summary', reuse=True):
+                self.ep_r = tf.Variable(0., name='ep_r')
+                self.ep_q = tf.Variable(0., name='ep_q')
+            tf.summary.scalar("total_reward", self.ep_r)
+            tf.summary.scalar("average_q_Value", self.ep_q)
+            self.summary_ops = tf.summary.merge_all()
+            self.writer = tf.summary.FileWriter("logs/", self.sess.graph)
         # global initializer
         self.sess.run(tf.global_variables_initializer())
-        # save tensorboard
-        if OUTPUT_GRAPH:
-            tf.summary.FileWriter("logs/", self.sess.graph)
 
     def actor_network(self, s, trainable, name=None):
         net = tf.layers.batch_normalization(s)
         net = tf.layers.dense(net, 300, activation=tf.nn.relu, name='hidden_layer', trainable=trainable)
+        net = tf.layers.batch_normalization(net)
         action = tf.layers.dense(net, self.a_dim, activation=tf.nn.tanh, name='output_layer', trainable=trainable)
         action = tf.multiply(action, self.a_bound, name=name)
         return action
@@ -79,21 +95,35 @@ class DDPG:
         s_w = tf.get_variable('state_weights', [self.s_dim, 300], trainable=trainable)
         a_w = tf.get_variable('action_weights', [self.a_dim, 300], trainable=trainable)
         a_b = tf.get_variable('action_biases', [1, 300], trainable=trainable)
-        net = tf.nn.relu(tf.matmul(net_s, s_w) + tf.matmul(net_a, a_w) + a_b)
+        net = tf.matmul(net_s, s_w) + tf.matmul(net_a, a_w) + a_b
+        net = tf.layers.batch_normalization(net)
+        net = tf.nn.relu(net)
         q_value = tf.layers.dense(net, 1, trainable=trainable, name=name)
         return q_value
 
-    def update_network(self):
+    def update_target_network(self):
         self.sess.run(self.update_params)
 
-    def train(self, scope, s, a, s_=None, r=None):
+    """
+    if the agent succeed to finish task with [done == True], the policy doesn't need to update
+    """
+
+    def skip_done(self, q, r, t):
+        q_target = []
+        for i in range(self.batch_size):
+            if t[i] is True:
+                q_target.append(r[i])
+            else:
+                q_target.append(r[i] + self.gamma * q[i])
+
+        return q_target
+
+    def train(self, scope, s, a, s_=None, r=None, t=None):
         if scope == 'Actor':
             return self.sess.run(self.actor_train, {self.s: s, self.a: a})
         else:
-            return self.sess.run(self.critic_train, {self.s: s,
-                                                     self.a: a,
-                                                     self.s_: s_,
-                                                     self.r: r})
+            return self.sess.run(self.critic_train,
+                                 {self.s: s, self.a: a, self.s_: s_, self.r: r, self.t: t})
 
     def evaluate(self, scope, s, a=None):
         if scope == 'Actor':
@@ -108,6 +138,12 @@ class DDPG:
     def restore(self):
         saver = tf.train.Saver()
         saver.restore(self.sess, 'params/')
+
+    def summary(self, r, q, episode):
+        if self.summary_output:
+            record = self.sess.run(self.summary_ops, {self.ep_r: r, self.ep_q: q})
+            self.writer.add_summary(record, episode)
+            self.writer.flush()
 
 
 class ReplayBuffer(object):

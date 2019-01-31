@@ -3,8 +3,8 @@ Make it more robust.
 Stop episode once the finger stop at the final position for 50 steps.
 Feature & reward engineering.
 """
-from DDPG.env import ArmEnv
-from DDPG.rl import DDPG
+from DDPG.env.arm_env import ArmEnv
+from DDPG.test_rl import DDPG
 import matplotlib.pyplot as plt
 import numpy as np
 
