@@ -1,2 +1,2 @@
-# RL-tensorflow
-my reinforcement learning study notes
+# my reinforcement learning study notes
+
