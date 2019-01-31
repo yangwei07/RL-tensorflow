@@ -4,6 +4,9 @@ DDPG (deep deterministic policy gradient) is a actor-critic algorithm for contin
 # algorithm
 ![image](https://github.com/yw825137911/RL-tensorflow/blob/master/img/algorithm.png)
 
+# code data flow
+![image](https://github.com/yw825137911/RL-tensorflow/blob/master/img/data_flow.png)
+
 # resource
 http://arxiv.org/abs/1509.02971
 
