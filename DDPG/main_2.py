@@ -3,23 +3,25 @@ Make it more robust.
 Stop episode once the finger stop at the final position for 50 steps.
 Feature & reward engineering.
 """
-from DDPG.env.arm_env import ArmEnv
-from DDPG.test_rl import DDPG
+from DDPG.ddpg import ActionNoise
+from DDPG.env.my_env import MyEnv
+from DDPG.rl import DDPG
 import matplotlib.pyplot as plt
 import numpy as np
 
 MAX_EPISODES = 500
-MAX_EP_STEPS = 200
+MAX_EP_STEPS = 400
 ON_TRAIN = True
 
 # set env
-env = ArmEnv()
+env = MyEnv()
 s_dim = env.state_dim
 a_dim = env.action_dim
-a_bound = env.action_bound
+a_bound = (env.action_bound['d'][1], env.action_bound['a'][1])
 
 # set RL method (continuous)
 rl = DDPG(a_dim, s_dim, a_bound)
+actor_noise = ActionNoise(mu=np.zeros(a_dim))
 
 steps = []
 def train():
@@ -37,9 +39,7 @@ def train():
         ep_q = 0.
         for j in range(MAX_EP_STEPS):
             env.render()
-
-            a = rl.choose_action(s)
-
+            a = rl.choose_action(s) + actor_noise()
             s_, r, t = env.step(a)
 
             rl.store_transition(s, a, r, s_)
@@ -59,6 +59,7 @@ def train():
                 ax2.cla()
                 ax1.plot(reward, 'b')
                 ax2.plot(policy, 'b')
+                break
     rl.save()
 
 

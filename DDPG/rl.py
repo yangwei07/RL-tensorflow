@@ -1,12 +1,12 @@
 import tensorflow as tf
 import numpy as np
 
-LR_A = 0.001    # learning rate for actor
-LR_C = 0.001    # learning rate for critic
+LR_A = 0.01    # learning rate for actor
+LR_C = 0.01    # learning rate for critic
 GAMMA = 0.9     # reward discount
 TAU = 0.01      # soft replacement
 MEMORY_CAPACITY = 10000
-BATCH_SIZE = 32
+BATCH_SIZE = 64
 
 
 class DDPG(object):
@@ -17,7 +17,7 @@ class DDPG(object):
         self.sess = tf.Session()
         self.a_replace_counter, self.c_replace_counter = 0, 0
 
-        self.a_dim, self.s_dim, self.a_bound = a_dim, s_dim, a_bound[1]
+        self.a_dim, self.s_dim, self.a_bound = a_dim, s_dim, a_bound
         self.S = tf.placeholder(tf.float32, [None, s_dim], 's')
         self.S_ = tf.placeholder(tf.float32, [None, s_dim], 's_')
         self.R = tf.placeholder(tf.float32, [None, 1], 'r')
@@ -70,7 +70,7 @@ class DDPG(object):
         return self.sess.run(self.q, {self.S: bs, self.a: ba})
 
     def store_transition(self, s, a, r, s_):
-        transition = np.hstack((s, a, [r], s_))
+        transition = np.hstack((s, a, r, s_))
         index = self.pointer % MEMORY_CAPACITY  # replace the old memory with new memory
         self.memory[index, :] = transition
         self.pointer += 1

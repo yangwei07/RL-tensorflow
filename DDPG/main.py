@@ -1,8 +1,7 @@
-from DDPG.ddpg import DDPG, ReplayBuffer, OrnsteinUhlenbeckActionNoise
+from DDPG.ddpg import DDPG, ReplayBuffer, ActionNoise
 import tensorflow as tf
 import numpy as np
-# import gym
-from DDPG.env.arm_env import ArmEnv
+from DDPG.env.my_env import MyEnv
 import matplotlib.pyplot as plt
 
 BUFFER_SIZE = 100000
@@ -15,12 +14,12 @@ ON_TRAIN = True
 np.random.seed(RANDOM)
 tf.set_random_seed(RANDOM)
 
-env = ArmEnv()
-# s_dim, a_dim, a_bound = env.state_dim, env.action_dim, env.action_bound['d'][1]
-s_dim, a_dim, a_bound = env.state_dim, env.action_dim, env.action_bound[1]
+env = MyEnv()
+s_dim, a_dim, a_bound = env.state_dim, env.action_dim, (env.action_bound['d'][1], env.action_bound['a'][1])
+# s_dim, a_dim, a_bound = env.state_dim, env.action_dim, env.action_bound[1]
 rl = DDPG(s_dim, a_dim, a_bound)
 rl.update_target_network()
-actor_noise = OrnsteinUhlenbeckActionNoise(mu=np.zeros(a_dim))
+actor_noise = ActionNoise(mu=np.zeros(a_dim))
 replay_buffer = ReplayBuffer(BUFFER_SIZE, RANDOM)
 
 
@@ -42,7 +41,6 @@ def train():
                 env.render()
             # choose action
             a = rl.evaluate('Actor', [s]) + actor_noise()
-            # s_, r, t, c = env.step(a[0])
             s_, r, t = env.step(a[0])
             # store replay buffer
             replay_buffer.add(
@@ -61,11 +59,10 @@ def train():
                 # Update target networks
                 rl.update_target_network()
 
-                ep_r += r
+                ep_r += r[0]
                 ep_q += np.amax(rl.evaluate('Critic', s_batch, a_batch))
 
             s = s_
-            # if t or c or j == MAX_STEPS - 1:
             if t or j == MAX_STEPS - 1:
                 rl.summary(ep_r, ep_q / j, i)
                 reward = np.append(reward, ep_r)

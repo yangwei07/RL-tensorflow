@@ -34,13 +34,13 @@ class DDPG:
         self.r = tf.placeholder(tf.float32, shape=[None, 1], name='r')
         self.t = tf.placeholder(tf.bool, shape=[None, 1], name='t')
 
-        # actor Network
+        # actor Network (deep q learning)
         with tf.variable_scope('Actor'):
             with tf.variable_scope('eval'):
                 self.a = self.actor_network(self.s, trainable=True, name='a')
             with tf.variable_scope('target'):
                 a_ = self.actor_network(self.s_, trainable=False)
-        # critic network
+        # critic network (policy gradient)
         with tf.variable_scope('Critic'):
             with tf.variable_scope('eval'):
                 self.q = self.critic_network(self.s, self.a, trainable=True, name='q_value')
@@ -189,7 +189,7 @@ class ReplayBuffer(object):
         self.count = 0
 
 
-class OrnsteinUhlenbeckActionNoise:
+class ActionNoise:
     def __init__(self, mu, sigma=0.3, theta=.15, dt=1e-2, x0=None):
         self.theta = theta
         self.mu = mu
@@ -208,4 +208,4 @@ class OrnsteinUhlenbeckActionNoise:
         self.x_prev = self.x0 if self.x0 is not None else np.zeros_like(self.mu)
 
     def __repr__(self):
-        return 'OrnsteinUhlenbeckActionNoise(mu={}, sigma={})'.format(self.mu, self.sigma)
+        return 'ActionNoise(mu={}, sigma={})'.format(self.mu, self.sigma)
